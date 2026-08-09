@@ -1,0 +1,120 @@
+name: MLOps CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ex5/**"
+      - ".github/workflows/mlops.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "ex5/**"
+      - ".github/workflows/mlops.yml"
+
+jobs:
+
+  test:
+    name: Test Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r ex5/requirements.txt
+
+      - name: Run tests
+        working-directory: ex5
+        run: |
+          pytest -q
+
+
+  train_and_evaluate:
+    name: Train and Evaluate
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r ex5/requirements.txt
+
+      - name: Prepare data
+        working-directory: ex5
+        run: |
+          python src/prepare.py
+
+      - name: Train model
+        working-directory: ex5
+        run: |
+          python src/train.py
+
+      - name: Evaluate model
+        working-directory: ex5
+        run: |
+          python src/evaluate.py
+
+      - name: Show metrics
+        working-directory: ex5
+        run: |
+          cat metrics.json
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: |
+            ex5/model/
+            ex5/metrics.json
+
+
+  deploy_to_huggingface:
+    name: Deploy to Hugging Face
+    needs: train_and_evaluate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r ex5/requirements.txt
+
+      - name: Download trained model
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model
+          path: ex5
+
+      - name: Register model
+        working-directory: ex5
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ vars.HF_REPO_ID }}
+        run: |
+          python src/register.py
